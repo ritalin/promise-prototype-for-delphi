@@ -6,130 +6,34 @@ uses
   DUnitX.TestFramework;
 
 type
-  IReason<TFailure: Exception> = interface
-    function GetError: TFailure;
-    property Error: TFailure read GetError;
-  end;
-
-  IHolder<TResult> = interface
-    function GetValue: TResult;
-    procedure SetValue(const value: TResult);
-    function GetReason: Exception;
-    procedure SetReason(const value: Exception);
-    function GetSuccessCount: integer;
-    function GetFailureCount: integer;
-    function GetAlwaysCount: integer;
-    procedure Success;
-    procedure Failed;
-    procedure Increment;
-
-    property Value: TResult read GetValue write SetValue;
-    property Reason: Exception read GetReason write SetReason;
-    property SuccessCount: integer read GetSuccessCount;
-    property FailureCount: integer read GetFailureCount;
-    property AlwaysCount: integer read GetAlwaysCount;
-  end;
-
   TExceptionCalss = class of Exception;
 
   [TestFixture]
-  TMyTestObject = class(TObject)
+  TSinglePromiseTest = class(TObject)
   private
     function SuccessCall<TResult>(value: TResult; const waitMiliSecs: integer): TFunc<TResult>;
     function FailedCall(const msg: string;
       const waitMiliSecs: integer; const cls: TExceptionCalss = nil): TFunc<integer>;
   public
     [Test] procedure test_success_wait;
+    [Test] procedure test_success_const_wait;
     [Test] procedure test_failure_wait;
+    [Test] procedure test_failure_const_wait;
     [Test] procedure test_success_no_wait;
     [Test] procedure test_failure_no_wait;
     [Test] procedure test_always_done;
     [Test] procedure test_always_failure;
   end;
 
-  TValueHolder<TResult> = class (TInterfacedObject, IHolder<TResult>)
-  private var
-    FValue: TResult;
-    FReason: Exception;
-    FSuccessCount: integer;
-    FFailureCount: integer;
-    FAlwaysCount: integer;
-  private
-    function GetValue: TResult;
-    procedure SetValue(const value: TResult);
-    function GetReason: Exception;
-    procedure SetReason(const value: Exception);
-    function GetSuccessCount: integer;
-    function GetFailureCount: integer;
-    function GetAlwaysCount: integer;
-  protected
-    procedure Success;
-    procedure Failed;
-    procedure Increment;
-  end;
-
 implementation
 
 uses
-
-  Promise.Proto
+  Promise.Proto, Valueholder
 ;
-
-{ TValueHolder<TResult> }
-
-procedure TValueHolder<TResult>.Failed;
-begin
-  TInterlocked.Increment(FFailureCount);
-end;
-
-function TValueHolder<TResult>.GetAlwaysCount: integer;
-begin
-  Exit(FAlwaysCount);
-end;
-
-function TValueHolder<TResult>.GetFailureCount: integer;
-begin
-  Exit(FFailureCount);
-end;
-
-function TValueHolder<TResult>.GetReason: Exception;
-begin
-  Exit(FReason);
-end;
-
-function TValueHolder<TResult>.GetSuccessCount: integer;
-begin
-  Exit(FSuccessCount);
-end;
-
-function TValueHolder<TResult>.GetValue: TResult;
-begin
-  Exit(FValue);
-end;
-
-procedure TValueHolder<TResult>.Increment;
-begin
-  TInterlocked.Increment(FAlwaysCount);
-end;
-
-procedure TValueHolder<TResult>.Success;
-begin
-  TInterlocked.Increment(FSuccessCount);
-end;
-
-procedure TValueHolder<TResult>.SetReason(const value: Exception);
-begin
-  FReason := value;
-end;
-
-procedure TValueHolder<TResult>.SetValue(const value: TResult);
-begin
-  FValue := value;
-end;
 
 { TMyTestObject }
 
-function TMyTestObject.SuccessCall<TResult>(value: TResult;
+function TSinglePromiseTest.SuccessCall<TResult>(value: TResult;
   const waitMiliSecs: integer): TFunc<TResult>;
 begin
   Result :=
@@ -141,7 +45,9 @@ begin
     end;
 end;
 
-function TMyTestObject.FailedCall(const msg: string;
+type TTestFailure = class(Exception);
+
+function TSinglePromiseTest.FailedCall(const msg: string;
   const waitMiliSecs: integer; const cls: TExceptionCalss): TFunc<integer>;
 begin
   Result :=
@@ -153,19 +59,17 @@ begin
         raise cls.Create(msg);
       end
       else begin
-        raise Exception.Create(msg);
+        raise TTestFailure.Create(msg);
       end;
     end;
 end;
 
-procedure TMyTestObject.test_success_wait;
+procedure TSinglePromiseTest.test_success_wait;
 var
   p: IPromise<integer,Exception,TNoProgress>;
   holder: IHolder<integer>;
-  count: integer;
 begin
   holder := TValueHolder<integer>.Create;
-  count := 0;
 
   p :=
     TPromise.When<integer>(Self.SuccessCall<integer>(123, 10))
@@ -173,20 +77,51 @@ begin
       procedure (value: integer)
       begin
         holder.Value := value;
+        holder.Success;
       end
     )
     .Fail(
        procedure (ex: IFailureReason<Exception>)
        begin
-         TInterlocked.Increment(count);
+         holder.Failed;
        end
     );
 
-  p.Future.Value;
-  while not CheckSynchronize do TThread.Sleep(100);
+  p.Future.WaitFor;
 
   Assert.AreEqual(123, holder.Value);
-  Assert.AreEqual(0, count);
+  Assert.AreEqual(1, holder.SuccessCount);
+  Assert.AreEqual(0, holder.FailureCount);
+end;
+
+procedure TSinglePromiseTest.test_success_const_wait;
+var
+  p: IPromise<integer,Exception,TNoProgress>;
+  holder: IHolder<integer>;
+begin
+  holder := TValueHolder<integer>.Create;
+
+  p :=
+    TPromise.Resolve<integer>(1024)
+    .Done(
+      procedure (value: integer)
+      begin
+        holder.Value := value;
+        holder.Success;
+      end
+    )
+    .Fail(
+       procedure (ex: IFailureReason<Exception>)
+       begin
+         holder.Failed;
+       end
+    );
+
+  p.Future.WaitFor;
+
+  Assert.AreEqual(1024, holder.Value);
+  Assert.AreEqual(1, holder.SuccessCount);
+  Assert.AreEqual(0, holder.FailureCount);
 end;
 
 procedure DoTestNoWait(const signal: TEvent; const fn: TFunc<integer>; const holder: IHolder<integer>);
@@ -212,7 +147,7 @@ begin
     );
 end;
 
-procedure TMyTestObject.test_success_no_wait;
+procedure TSinglePromiseTest.test_success_no_wait;
 var
   holder: IHolder<integer>;
   signal: TEvent;
@@ -234,37 +169,63 @@ begin
   Assert.AreEqual(0, holder.FailureCount);
 end;
 
-procedure TMyTestObject.test_failure_wait;
+procedure TSinglePromiseTest.test_failure_wait;
 var
   p: IPromise<integer,Exception,TNoProgress>;
-  doneCount, failedCount: integer;
+  holder: IHolder<integer>;
 begin
-  doneCount := 0;
-  failedCount := 0;
+  holder := TValueHolder<integer>.Create;
 
   p :=
     TPromise.When<integer>(Self.FailedCall('Oops', 10))
     .Done(
       procedure (value: integer)
       begin
-         TInterlocked.Increment(doneCount);
+        holder.Success;
       end
     )
     .Fail(
-       procedure (ex: IFailureReason<Exception>)
-       begin
-         TInterlocked.Increment(failedCount);
-       end
+      procedure (ex: IFailureReason<Exception>)
+      begin
+        holder.Failed;
+      end
     );
 
   p.Future.WaitFor;
-  while not CheckSynchronize do TThread.Sleep(100);
 
-  Assert.AreEqual(0, doneCount);
-  Assert.AreEqual(1, failedCount);
+  Assert.AreEqual(0, holder.SuccessCount);
+  Assert.AreEqual(1, holder.FailureCount);
 end;
 
-procedure TMyTestObject.test_failure_no_wait;
+procedure TSinglePromiseTest.test_failure_const_wait;
+var
+  p: IPromise<TObject,TTestFailure,TNoProgress>;
+  holder: IHolder<integer>;
+begin
+  holder := TValueHolder<integer>.Create;
+
+  p :=
+    TPromise.Reject(TTestFailure.Create('Rejected'))
+    .Done(
+      procedure (value: TObject)
+      begin
+        holder.Success;
+      end
+    )
+    .Fail(
+      procedure (ex: IFailureReason<TTestFailure>)
+      begin
+        holder.Failed;
+      end
+    );
+
+  p.Future.WaitFor;
+
+  Assert.AreEqual(0, holder.SuccessCount);
+  Assert.AreEqual(1, holder.FailureCount);
+end;
+
+procedure TSinglePromiseTest.test_failure_no_wait;
 var
   holder: IHolder<integer>;
   signal: TEvent;
@@ -285,7 +246,7 @@ begin
   Assert.AreEqual(1, holder.FailureCount);
 end;
 
-procedure TMyTestObject.test_always_done;
+procedure TSinglePromiseTest.test_always_done;
 var
   p: IPromise<integer,Exception,TNoProgress>;
   holder: IHolder<integer>;
@@ -318,7 +279,6 @@ begin
   ;
 
   p.Future.WaitFor;
-  while not CheckSynchronize do TThread.Sleep(100);
 
   Assert.AreEqual(4096, holder.Value);
   Assert.IsNull(holder.Reason);
@@ -341,7 +301,7 @@ begin
   inherited;
 end;
 
-procedure TMyTestObject.test_always_failure;
+procedure TSinglePromiseTest.test_always_failure;
 var
   p: IPromise<integer,Exception,TNoProgress>;
   holder: IHolder<integer>;
@@ -374,7 +334,6 @@ begin
   ;
 
   p.Future.WaitFor;
-  while not CheckSynchronize do TThread.Sleep(100);
 
   Assert.AreEqual(0, holder.Value);
   Assert.IsNotNull(holder.Reason);
@@ -383,9 +342,8 @@ begin
   Assert.AreEqual(0, holder.SuccessCount);
   Assert.AreEqual(1, holder.FailureCount);
   Assert.AreEqual(1, holder.AlwaysCount);
-
 end;
 
 initialization
-  TDUnitX.RegisterTestFixture(TMyTestObject);
+
 end.

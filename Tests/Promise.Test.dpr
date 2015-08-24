@@ -11,8 +11,10 @@ uses
   DUnitX.Loggers.Console,
   DUnitX.Loggers.Xml.NUnit,
   DUnitX.TestFramework,
+  Promise.Proto in '..\Sources\Promise.Proto.pas',
   PromiseTest in 'PromiseTest.pas',
-  Promise.Proto in 'Promise.Proto.pas';
+  FailureTest in 'FailureTest.pas',
+  Valueholder in 'Valueholder.pas';
 
 var
   runner : ITestRunner;
@@ -39,6 +41,9 @@ begin
     nunitLogger := TDUnitXXMLNUnitFileLogger.Create(TDUnitX.Options.XMLOutputFile);
     runner.AddLogger(nunitLogger);
     runner.FailsOnNoAsserts := False; //When true, Assertions must be made during tests;
+
+//    TDUnitX.RegisterTestFixture(TSinglePromiseTest);
+    TDUnitX.RegisterTestFixture(TFailureTest);
 
     //Run tests
     results := runner.Execute;

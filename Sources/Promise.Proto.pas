@@ -9,6 +9,9 @@ uses
 type
   TState = (Pending, Resolved, Rejected);
 
+  TPromiseException = class(Exception);
+  TInvalidpromiseStateException = class(TPromiseException);
+
   IFailureReason<TFailure> = interface
     ['{A7C29DBC-D00B-4B5D-ABD6-3280F9F49971}']
     function GetReason: TFailure;
@@ -17,6 +20,7 @@ type
 
   TNoProgress = Pointer;
 
+  TPromiseInitProc<TResult, TFailure> = reference to procedure (const resolver: TProc<TResult>; const rejector: TProc<TFailure>);
   TFailureProc<TFailure> = reference to procedure (failure: IFailureReason<TFailure>);
   TAlwaysProc<TSuccess,TFailure> = reference to procedure (const state: TState; success: TSuccess; failure: IFailureReason<TFailure>);
 
@@ -52,11 +56,16 @@ type
     TPolicy = (Default);
   public
     class function When<TResult>(const fn: TFunc<TResult>): IPromise<TResult, Exception, TNoProgress>; overload; static;
+    class function When<TResult>(const initializer: TPromiseInitProc<TResult, Exception>): IPromise<TResult, Exception, TNoProgress>; overload; static;
+    class function When<TResult; TFailure:Exception>(const initializer: TPromiseInitProc<TResult, TFailure>): IPromise<TResult, TFailure, TNoProgress>; overload; static;
+    class function Resolve<TResult>(value: TResult): IPromise<TResult, Exception, TNoProgress>; static;
+    class function Reject<TFailure:Exception>(value: TFailure): IPromise<TObject, TFailure, TNoProgress>; static;
   end;
 
   TDeferredObject<TSuccess; TFailure:Exception; TProgress> = class (TInterfacedObject, IPromise<TSuccess, TFailure, TProgress>)
   private
     FState: TState;
+    FFinished: boolean;
     FSuccess: TSuccess;
     FFailure: IFailureReason<TFailure>;
     FFuture: IFuture<TSuccess>;
@@ -64,10 +73,12 @@ type
     FFailActions: TList<TFailureProc<TFailure>>;
     FAlwaysActions: TList<TAlwaysProc<TSuccess, TFailure>>;
   private
+    function Init(const initializer: TPromiseInitProc<TSuccess,TFailure>): IPromise<TSuccess, TFailure, TProgress>;
     function GetFuture: IFuture<TSuccess>;
     function IsPending: boolean;
     function IsResolved: boolean;
     function IsRejected: boolean;
+    procedure AssertState(const acceptable: boolean; const msg: string);
     procedure TriggerDone(value: TSuccess);
     procedure TriggerFail(value: IFailureReason<TFailure>);
     procedure TriggerAlways(const state: TState; success: TSuccess; failure: IFailureReason<TFailure>);
@@ -79,7 +90,7 @@ type
     function Fail(const proc: TFailureProc<TFailure>): IPromise<TSuccess, TFailure, TProgress>;
     function Always(const proc: TAlwaysProc<TSuccess,TFailure>): IPromise<TSuccess, TFailure, TProgress>;
   public
-    constructor Create(const fn: TFunc<TSuccess>);
+    constructor Create;
     destructor Destroy; override;
   end;
 
@@ -99,9 +110,9 @@ type
     procedure Cancell;
     function WaitFor: boolean;
   protected
-    procedure DoExecute(const fn: TFunc<TResult>);
+    procedure DoExecute(const initializer: TPromiseInitProc<TResult, TFailure>);
   public
-    constructor Create(const promise: IPromise<TResult,TFailure,TProgress>; const fn: TFunc<TResult>);
+    constructor Create(const promise: IPromise<TResult,TFailure,TProgress>; const initializer: TPromiseInitProc<TResult,TFailure>); overload;
     destructor Destroy; override;
   end;
 
@@ -122,7 +133,61 @@ implementation
 class function TPromise.When<TResult>(
   const fn: TFunc<TResult>): IPromise<TResult, Exception, TNoProgress>;
 begin
-  Result := TDeferredObject<TResult,Exception,TNoProgress>.Create(fn);
+  Result :=
+    TDeferredObject<TResult,Exception,TNoProgress>
+    .Create
+    .Init(
+      procedure (const resolver: TProc<TResult>; const rejector: TProc<Exception>)
+      var
+        r: TResult;
+      begin
+        if Assigned(fn) then begin
+          r := fn;
+        end
+        else begin
+          r := System.Default(TResult);
+        end;
+        resolver(r);
+      end
+    );
+end;
+
+class function TPromise.Reject<TFailure>(
+  value: TFailure): IPromise<TObject, TFailure, TNoProgress>;
+begin
+  Result :=
+    When<TObject,TFailure>(
+      procedure (const resolver: TProc<TObject>; const rejector: TProc<TFailure>)
+      begin
+        rejector(value);
+      end
+    );
+end;
+
+class function TPromise.Resolve<TResult>(
+  value: TResult): IPromise<TResult, Exception, TNoProgress>;
+begin
+  Result := When<TResult>(
+    function: TResult
+    begin
+      Result := value;
+    end
+  );
+end;
+
+class function TPromise.When<TResult, TFailure>(
+  const initializer: TPromiseInitProc<TResult, TFailure>): IPromise<TResult, TFailure, TNoProgress>;
+begin
+  Result :=
+    TDeferredObject<TResult,TFailure,TNoProgress>
+    .Create
+    .Init(initializer)
+end;
+
+class function TPromise.When<TResult>(
+  const initializer: TPromiseInitProc<TResult, Exception>): IPromise<TResult, Exception, TNoProgress>;
+begin
+  Result := When<TResult,Exception>(initializer);
 end;
 
 { TDefferredTask<TResult, TProgress> }
@@ -132,21 +197,21 @@ begin
 
 end;
 
-constructor TDeferredTask<TResult,TFailure,TProgress>.Create(
+constructor TDeferredTask<TResult, TFailure, TProgress>.Create(
   const promise: IPromise<TResult,TFailure,TProgress>;
-  const fn: TFunc<TResult>);
+  const initializer: TPromiseInitProc<TResult, TFailure>);
 begin
   FPromise := promise;
-  FPolicy := TPromise.TPolicy.Default;
   FSignal := TEvent.Create;
+  FPolicy := TPromise.TPolicy.Default;
 
   FThread := TThread.CreateAnonymousThread(
     procedure
     begin
-      Self.DoExecute(fn);
+      Self.DoExecute(initializer);
     end
   );
-//  FThread.FreeOnTerminate := false;
+
   FThread.OnTerminate := Self.NotifyThreadTerminated;
   FThread.Start;
 end;
@@ -157,14 +222,22 @@ begin
   inherited;
 end;
 
-procedure TDeferredTask<TResult,TFailure,TProgress>.DoExecute(const fn: TFunc<TResult>);
+procedure TDeferredTask<TResult,TFailure,TProgress>.DoExecute(const initializer: TPromiseInitProc<TResult, TFailure>);
 var
   obj: TObject;
 begin
   try
-    FResult := fn;
-
-    FPromise.Resolve(FResult);
+    initializer(
+      procedure (value: TResult)
+      begin
+        FResult := value;
+        FPromise.Resolve(value);
+      end,
+      procedure (value: TFailure)
+      begin
+        FPromise.Reject(value);
+      end
+    );
   except
     obj := AcquireExceptionObject;
     FPromise.Reject(obj as TFailure);
@@ -175,12 +248,7 @@ end;
 
 function TDeferredTask<TResult,TFailure,TProgress>.GetValue: TResult;
 begin
-  if Assigned(FThread) then begin
-    if not FThread.Finished then begin
-      FSignal.WaitFor;
-    end;
-    FPromise := nil;
-  end;
+  Self.WaitFor;
 
   Result := FResult;
 end;
@@ -193,15 +261,31 @@ end;
 
 function TDeferredTask<TResult, TFailure, TProgress>.WaitFor: boolean;
 begin
-  Result := FSignal.WaitFor = wrSignaled;
+  Result := false;
+  if Assigned(FThread) then begin
+    if not FThread.Finished then begin
+      Result := FSignal.WaitFor = wrSignaled;
+    end;
+    FPromise := nil;
+  end;
+
+  while not CheckSynchronize do TThread.Sleep(100);
 end;
 
 { TDeferredObject<TSuccess, TFailure, TProgress> }
 
-constructor TDeferredObject<TSuccess, TFailure, TProgress>.Create(const fn: TFunc<TSuccess>);
+procedure TDeferredObject<TSuccess, TFailure, TProgress>.AssertState(
+  const acceptable: boolean; const msg: string);
 begin
-  FFuture := TDeferredTask<TSuccess,TFailure,TProgress>.Create(Self, fn);
+  if not acceptable then begin
+    FState := TState.Pending;
 
+    raise TInvalidpromiseStateException.Create(msg);
+  end;
+end;
+
+constructor TDeferredObject<TSuccess, TFailure, TProgress>.Create;
+begin
   FDoneActions := TList<TProc<TSuccess>>.Create;
   FFailActions := TList<TFailureProc<TFailure>>.Create;
   FAlwaysActions := TList<TAlwaysProc<TSuccess,TFailure>>.Create;
@@ -213,6 +297,14 @@ begin
   FFailActions.Free;
   FAlwaysActions.Free;
   inherited;
+end;
+
+function TDeferredObject<TSuccess, TFailure, TProgress>.Init(
+  const initializer: TPromiseInitProc<TSuccess, TFailure>): IPromise<TSuccess, TFailure, TProgress>;
+begin
+  FFuture := TDeferredTask<TSuccess,TFailure,TProgress>.Create(Self, initializer);
+
+  Result := Self;
 end;
 
 function TDeferredObject<TSuccess, TFailure, TProgress>.Done(
@@ -279,16 +371,14 @@ function TDeferredObject<TSuccess, TFailure, TProgress>.Resolve(
 begin
   TMonitor.Enter(Self);
   try
-    Assert(Self.IsPending, 'Deferred object already finished.');
+    AssertState(Self.IsPending, 'Deferred object already finished.');
 
-    FState := TState.Resolved;
     FSuccess := value;
 
-    try
-      Self.TriggerDone(value);
-    finally
-      Self.TriggerAlways(FState, value, nil);
-    end;
+    Self.TriggerDone(value);
+    Self.TriggerAlways(FState, value, nil);
+
+    FState := TState.Resolved;
   finally
     TMonitor.Exit(Self);
   end;
@@ -299,16 +389,16 @@ function TDeferredObject<TSuccess, TFailure, TProgress>.Reject(
 begin
   TMonitor.Enter(Self);
   try
-    Assert(Self.IsPending, 'Deferred object already finished.');
+    AssertState(Self.IsPending, 'Deferred object already finished.');
 
-    FState := TState.Rejected;
     FFailure := TFailureReason<TFailure>.Create(value);
-
     try
       Self.TriggerFail(FFailure);
     finally
       Self.TriggerAlways(FState, System.Default(TSuccess), FFailure);
     end;
+
+    FState := TState.Rejected;
   finally
     TMonitor.Exit(Self);
   end;
@@ -355,8 +445,12 @@ procedure TDeferredObject<TSuccess, TFailure, TProgress>.TriggerAlways(
 var
   proc: TAlwaysProc<TSuccess,TFailure>;
 begin
-  for proc in FAlwaysActions do begin
-    proc(state, success, failure);
+  if not FFinished then begin
+    FFinished := true;
+
+    for proc in FAlwaysActions do begin
+      proc(state, success, failure);
+    end;
   end;
 end;
 
