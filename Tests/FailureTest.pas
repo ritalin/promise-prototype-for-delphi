@@ -17,14 +17,14 @@ type
 implementation
 
 uses
-  Promise.Proto, ValueHolder
+  Promise.Proto, Promise.Types, ValueHolder
 ;
 
 { TFailureTest }
 
 procedure TFailureTest.test_bad_callback_flow;
 var
-  p: IPromise<integer,Exception,TNoProgress>;
+  p: IPromise<integer,Exception>;
   holder: IHolder<integer>;
 begin
   holder := TValueHolder<integer>.Create;
@@ -48,14 +48,8 @@ begin
     .Fail(
        procedure (ex: IFailureReason<Exception>)
        begin
-         holder.Reason := ex.Reason;
+         holder.Error := ex;
          holder.Failed;
-       end
-    )
-    .Always(
-       procedure (const state: TState; success: integer; failure: IFailureReason<Exception>)
-       begin
-         holder.Increment;
        end
     )
   ;
@@ -63,25 +57,23 @@ begin
   p.Future.WaitFor;
 
   Assert.AreEqual(1024, holder.Value);
-  Assert.IsNotNull(holder.Reason);
-  Assert.InheritsFrom(holder.Reason.ClassType, Exception);
-  Assert.AreEqual('Raise into done callback', holder.Reason.Message);
+  Assert.IsNotNull(holder.Error);
+  Assert.InheritsFrom(holder.Error.Reason.ClassType, Exception);
+  Assert.AreEqual('Raise into done callback', holder.Error.Reason.Message);
 
   Assert.AreEqual(1, holder.SuccessCount);
   Assert.AreEqual(1, holder.FailureCount);
-  Assert.AreEqual(1, holder.AlwaysCount);
-
 end;
 
 procedure TFailureTest.test_resolving_twice;
 var
-  p: IPromise<integer,Exception,TNoProgress>;
+  p: IPromise<integer,Exception>;
   holder: IHolder<integer>;
 begin
   holder := TValueHolder<integer>.Create;
 
   p := TPromise.When<integer>(
-    procedure (const resolver: TProc<integer>; const rejector: TProc<Exception>)
+    procedure (const resolver: TProc<integer>; const rejector: TFailureProc<Exception>)
     begin
       resolver(1000);
       resolver(1000);

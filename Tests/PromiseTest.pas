@@ -21,14 +21,12 @@ type
     [Test] procedure test_failure_const_wait;
     [Test] procedure test_success_no_wait;
     [Test] procedure test_failure_no_wait;
-    [Test] procedure test_always_done;
-    [Test] procedure test_always_failure;
   end;
 
 implementation
 
 uses
-  Promise.Proto, Valueholder
+  Promise.Proto, Promise.Types, Valueholder
 ;
 
 { TMyTestObject }
@@ -66,7 +64,7 @@ end;
 
 procedure TSinglePromiseTest.test_success_wait;
 var
-  p: IPromise<integer,Exception,TNoProgress>;
+  p: IPromise<integer,Exception>;
   holder: IHolder<integer>;
 begin
   holder := TValueHolder<integer>.Create;
@@ -96,7 +94,7 @@ end;
 
 procedure TSinglePromiseTest.test_success_const_wait;
 var
-  p: IPromise<integer,Exception,TNoProgress>;
+  p: IPromise<integer,Exception>;
   holder: IHolder<integer>;
 begin
   holder := TValueHolder<integer>.Create;
@@ -126,7 +124,7 @@ end;
 
 procedure DoTestNoWait(const signal: TEvent; const fn: TFunc<integer>; const holder: IHolder<integer>);
 var
-  p: IPromise<integer,Exception,TNoProgress>;
+  p: IPromise<integer,Exception>;
 begin
   p :=
     TPromise.When<integer>(fn)
@@ -171,7 +169,7 @@ end;
 
 procedure TSinglePromiseTest.test_failure_wait;
 var
-  p: IPromise<integer,Exception,TNoProgress>;
+  p: IPromise<integer,Exception>;
   holder: IHolder<integer>;
 begin
   holder := TValueHolder<integer>.Create;
@@ -199,13 +197,13 @@ end;
 
 procedure TSinglePromiseTest.test_failure_const_wait;
 var
-  p: IPromise<TObject,TTestFailure,TNoProgress>;
+  p: IPromise<TObject,TTestFailure>;
   holder: IHolder<integer>;
 begin
   holder := TValueHolder<integer>.Create;
 
   p :=
-    TPromise.Reject(TTestFailure.Create('Rejected'))
+    TPromise.Reject<TTestFailure>(TTestFailure.Create('Rejected'))
     .Done(
       procedure (value: TObject)
       begin
@@ -246,48 +244,6 @@ begin
   Assert.AreEqual(1, holder.FailureCount);
 end;
 
-procedure TSinglePromiseTest.test_always_done;
-var
-  p: IPromise<integer,Exception,TNoProgress>;
-  holder: IHolder<integer>;
-begin
-  holder := TValueHolder<integer>.Create;
-
-  p :=
-    TPromise.When<integer>(Self.SuccessCall<integer>(1024, 10))
-    .Done(
-      procedure (value: integer)
-      begin
-         holder.Value := value;
-         holder.Success;
-      end
-    )
-    .Fail(
-       procedure (ex: IFailureReason<Exception>)
-       begin
-         holder.Reason := ex.Reason;
-         holder.Failed;
-       end
-    )
-    .Always(
-       procedure (const state: TState; success: integer; failure: IFailureReason<Exception>)
-       begin
-         holder.Value := holder.Value + success * 3;
-         holder.Increment;
-       end
-    )
-  ;
-
-  p.Future.WaitFor;
-
-  Assert.AreEqual(4096, holder.Value);
-  Assert.IsNull(holder.Reason);
-
-  Assert.AreEqual(1, holder.SuccessCount);
-  Assert.AreEqual(0, holder.FailureCount);
-  Assert.AreEqual(1, holder.AlwaysCount);
-end;
-
 type
   TCustomException = class(Exception)
   public
@@ -299,49 +255,6 @@ type
 destructor TCustomException.Destroy;
 begin
   inherited;
-end;
-
-procedure TSinglePromiseTest.test_always_failure;
-var
-  p: IPromise<integer,Exception,TNoProgress>;
-  holder: IHolder<integer>;
-begin
-  holder := TValueHolder<integer>.Create;
-
-  p :=
-    TPromise.When<integer>(Self.FailedCall('Oops', 10, TCustomException))
-    .Done(
-      procedure (value: integer)
-      begin
-         holder.Value := value;
-         holder.Success;
-      end
-    )
-    .Fail(
-       procedure (ex: IFailureReason<Exception>)
-       begin
-         holder.Reason := ex.Reason;
-         holder.Failed;
-       end
-    )
-    .Always(
-       procedure (const state: TState; success: integer; failure: IFailureReason<Exception>)
-       begin
-         holder.Value := holder.Value + success * 3;
-         holder.Increment;
-       end
-    )
-  ;
-
-  p.Future.WaitFor;
-
-  Assert.AreEqual(0, holder.Value);
-  Assert.IsNotNull(holder.Reason);
-  Assert.InheritsFrom(holder.Reason.ClassType, TCustomException);
-
-  Assert.AreEqual(0, holder.SuccessCount);
-  Assert.AreEqual(1, holder.FailureCount);
-  Assert.AreEqual(1, holder.AlwaysCount);
 end;
 
 initialization

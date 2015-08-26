@@ -14,7 +14,10 @@ uses
   Promise.Proto in '..\Sources\Promise.Proto.pas',
   PromiseTest in 'PromiseTest.pas',
   FailureTest in 'FailureTest.pas',
-  Valueholder in 'Valueholder.pas';
+  ValueHolder in 'ValueHolder.pas',
+  PiplineTest in 'PiplineTest.pas',
+  Promise.Core in '..\Sources\Promise.Core.pas',
+  Promise.Types in '..\Sources\Promise.Types.pas';
 
 var
   runner : ITestRunner;
@@ -42,8 +45,9 @@ begin
     runner.AddLogger(nunitLogger);
     runner.FailsOnNoAsserts := False; //When true, Assertions must be made during tests;
 
-//    TDUnitX.RegisterTestFixture(TSinglePromiseTest);
+    TDUnitX.RegisterTestFixture(TSinglePromiseTest);
     TDUnitX.RegisterTestFixture(TFailureTest);
+    TDUnitX.RegisterTestFixture(TPiplineTest);
 
     //Run tests
     results := runner.Execute;
