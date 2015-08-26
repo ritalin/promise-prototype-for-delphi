@@ -47,7 +47,8 @@ begin
 
     TDUnitX.RegisterTestFixture(TSinglePromiseTest);
     TDUnitX.RegisterTestFixture(TFailureTest);
-    TDUnitX.RegisterTestFixture(TPiplineTest);
+    TDUnitX.RegisterTestFixture(TPipelineTest);
+    TDUnitX.RegisterTestFixture(TMultiStepPipelineTest);
 
     //Run tests
     results := runner.Execute;

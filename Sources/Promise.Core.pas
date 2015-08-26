@@ -143,9 +143,7 @@ type
       const prev: IPromiseAccess<TSuccessSource, TFailureSource>;
       const whenSucces: TPipelineFunc<TSuccessSource,TSuccess,TFailure>;
       const whenFailure: TPipelineFunc<IFailureReason<TFailureSource>,TSuccess,TFailure>); overload;
-//    constructor Create(
-//      const prev: IPromise<TSuccessSource,TSuccess>;
-//      const whenSuccess: TFunc<TSuccessSource,TSuccess>; const whenfailure: TFunc<TSuccess,TFailure>); overload;
+    destructor Destroy; override;
   end;
 
   TTerminatedPromise<TResult; TFailure:Exception> = class(TInterfacedObject, IPromise<TResult, TFailure>, IPromiseResolvable<TResult,TFailure>)
@@ -562,6 +560,11 @@ begin
   finally
     TMonitor.Exit(Self);
   end;
+end;
+
+destructor TPipedPromise<TSuccessSource, TSuccess, TFailureSource, TFailure>.Destroy;
+begin
+  inherited;
 end;
 
 function TPipedPromise<TSuccessSource, TSuccess, TFailureSource, TFailure>.Done(
