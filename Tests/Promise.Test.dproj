@@ -116,13 +116,11 @@
         <DelphiCompile Include="$(MainSource)">
             <MainSource>MainSource</MainSource>
         </DelphiCompile>
-        <DCCReference Include="..\Sources\Promise.Proto.pas"/>
         <DCCReference Include="PromiseTest.pas"/>
         <DCCReference Include="FailureTest.pas"/>
         <DCCReference Include="ValueHolder.pas"/>
-        <DCCReference Include="PiplineTest.pas"/>
-        <DCCReference Include="..\Sources\Promise.Core.pas"/>
-        <DCCReference Include="..\Sources\Promise.Types.pas"/>
+        <DCCReference Include="PipelineTest.pas"/>
+        <DCCReference Include="..\Sources\Promise.Proto.pas"/>
         <BuildConfiguration Include="Release">
             <Key>Cfg_2</Key>
             <CfgParent>Base</CfgParent>

@@ -1,4 +1,4 @@
-unit PiplineTest;
+unit PipelineTest;
 
 interface
 
@@ -24,14 +24,17 @@ type
     [Test] procedure test_resolve_reject_pipe;
     [Test] procedure test_reject_resolve_pipe;
     [Test] procedure test_reject_reject_pipe;
-    [Test] procedure test_reject_resolve_pipe_no_waait;
+    [Test] procedure test_reject_resolve_pipe_no_wait;
+    [Test] procedure test_resolve_resolve_pipe_with_conversion;
+    [Test] procedure test_rejecting_after_fail_through_pipe_with_conversio;
+    [Test] procedure test_resolving_after_success_through_pipe_with_conversion;
   end;
 
 implementation
 
 uses
   System.SyncObjs,
-  Promise.Proto, Promise.Types, ValueHolder
+  Promise.Proto, ValueHolder
 ;
 
 type EPipelineException = class(Exception);
@@ -584,7 +587,7 @@ begin
     );
 end;
 
-procedure TMultiStepPipelineTest.test_reject_resolve_pipe_no_waait;
+procedure TMultiStepPipelineTest.test_reject_resolve_pipe_no_wait;
 var
   holder: IHolder<integer>;
   signal: TEvent;
@@ -606,6 +609,183 @@ begin
 
   Assert.AreEqual(1, holder.SuccessCount);
   Assert.AreEqual(0, holder.FailureCount);
+end;
+
+procedure TMultiStepPipelineTest.test_resolve_resolve_pipe_with_conversion;
+var
+  p: IPromise<string,Exception>;
+  preValue: IHolder<integer>;
+  postValue: IHolder<string>;
+begin
+  preValue := TValueHolder<integer>.Create;
+  postValue := TValueHolder<string>.Create;
+
+  p :=
+    TPromise.Resolve<integer>(500)
+    .ThenBy(
+      function (value: integer): IPromise<integer, Exception>
+      begin
+        preValue.Value := value;
+        preValue.Success;
+        Result := TPromise.Resolve<integer>(value+1000);
+      end
+    )
+    .Op.ThenBy<string>(
+      function (value: integer): IPromise<string, Exception>
+      begin
+        preValue.Value := value;
+        preValue.Success;
+        Result := TPromise.Resolve(value.ToString);
+      end
+    )
+    .Done(
+      procedure (value: string)
+      begin
+        postValue.Value := value;
+        postValue.Success;
+      end
+    )
+    .Fail(
+      procedure (value: IFailureReason<Exception>)
+      begin
+        postValue.Error := value;
+        postValue.Failed;
+      end
+    );
+
+  p.Future.WaitFor;
+
+  Assert.AreEqual(1500, preValue.Value);
+
+  Assert.AreEqual(2, preValue.SuccessCount);
+
+  Assert.AreEqual('1500', postValue.Value);
+  Assert.IsNull(postValue.Error);
+
+  Assert.AreEqual(1, postValue.SuccessCount);
+  Assert.AreEqual(0, postValue.FailureCount);
+
+end;
+
+procedure TMultiStepPipelineTest.test_rejecting_after_fail_through_pipe_with_conversio;
+var
+  p: IPromise<string,Exception>;
+  preValue: IHolder<integer>;
+  postValue: IHolder<string>;
+begin
+  preValue := TValueHolder<integer>.Create;
+  postValue := TValueHolder<string>.Create;
+
+  p :=
+    TPromise.Reject<integer, Exception>(EPipelineException.Create('when first calls has failed'))
+    .Op.ThenBy<string>(
+      function (value: integer): IPromise<string, Exception>
+      begin
+        preValue.Value := 1000;
+        preValue.Success;
+
+        Result := TPromise.Reject<string,Exception>(EPipelineException.Create('when latter calls has failed'));
+      end
+    )
+   .ThenBy(
+      function (value: string): IPromise<string, Exception>
+      begin
+        preValue.Success;
+
+        Result := TPromise.Resolve<string>('[' + value + ']');
+      end
+   )
+   .Done(
+      procedure (value: string)
+      begin
+        postValue.Value := value;
+        postValue.Success;
+      end
+    )
+    .Fail(
+      procedure (value: IFailureReason<Exception>)
+      begin
+        postValue.Error := value;
+        postValue.Failed;
+      end
+    );
+
+  p.Future.WaitFor;
+
+  Assert.AreEqual(0, preValue.value);
+  Assert.IsNull(preValue.Error);
+
+  Assert.AreEqual(0, preValue.SuccessCount);
+  Assert.AreEqual(0, preValue.FailureCount);
+
+  Assert.IsNotNull(postValue.Error);
+  Assert.IsNotNull(postValue.Error.Reason);
+  Assert.InheritsFrom(postValue.Error.Reason.ClassType, EPipelineException);
+  Assert.AreEqual('when first calls has failed', postValue.Error.Reason.Message);
+
+  Assert.AreEqual('', postValue.Value);
+  Assert.AreEqual(0, postValue.SuccessCount);
+  Assert.AreEqual(1, postValue.FailureCount);end;
+
+procedure TMultiStepPipelineTest.test_resolving_after_success_through_pipe_with_conversion;
+var
+  p: IPromise<string,Exception>;
+  preValue: IHolder<integer>;
+  postValue: IHolder<string>;
+begin
+  preValue := TValueHolder<integer>.Create;
+  postValue := TValueHolder<string>.Create;
+
+  p :=
+    TPromise.Reject<integer, Exception>(EPipelineException.Create('when first calls has failed'))
+    .Op.ThenBy<string>(
+      function (value: integer): IPromise<string, Exception>
+      begin
+        preValue.Value := 1000;
+        preValue.Success;
+
+        Result := TPromise.Resolve<string>(value.ToString);
+      end
+    )
+    .ThenBy(
+      function (value: string): IPromise<string, Exception>
+      begin
+        preValue.Success;
+
+        Result := TPromise.Resolve<string>('[' + value + ']');
+      end
+    )
+    .Done(
+      procedure (value: string)
+      begin
+        postValue.Value := value;
+        postValue.Success;
+      end
+    )
+    .Fail(
+      procedure (value: IFailureReason<Exception>)
+      begin
+        postValue.Error := value;
+        postValue.Failed;
+      end
+    );
+
+  p.Future.WaitFor;
+
+  Assert.AreEqual(0, preValue.value);
+  Assert.IsNull(preValue.Error);
+
+  Assert.AreEqual(0, preValue.SuccessCount);
+  Assert.AreEqual(0, preValue.FailureCount);
+
+  Assert.AreEqual('', postValue.Value);
+  Assert.IsNotNull(postValue.Error);
+  Assert.IsNotNull(postValue.Error.Reason);
+  Assert.InheritsFrom(postValue.Error.Reason.ClassType, EPipelineException);
+  Assert.AreEqual('when first calls has failed', postValue.Error.Reason.Message);
+
+  Assert.AreEqual(0, postValue.SuccessCount);
+  Assert.AreEqual(1, postValue.FailureCount);
 end;
 
 initialization

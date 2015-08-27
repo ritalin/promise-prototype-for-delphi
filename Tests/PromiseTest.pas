@@ -26,7 +26,7 @@ type
 implementation
 
 uses
-  Promise.Proto, Promise.Types, Valueholder
+  Promise.Proto, Valueholder
 ;
 
 { TMyTestObject }

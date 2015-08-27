@@ -17,7 +17,7 @@ type
 implementation
 
 uses
-  Promise.Proto, Promise.Types, ValueHolder
+  Promise.Proto, ValueHolder
 ;
 
 { TFailureTest }

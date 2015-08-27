@@ -11,13 +11,11 @@ uses
   DUnitX.Loggers.Console,
   DUnitX.Loggers.Xml.NUnit,
   DUnitX.TestFramework,
-  Promise.Proto in '..\Sources\Promise.Proto.pas',
   PromiseTest in 'PromiseTest.pas',
   FailureTest in 'FailureTest.pas',
   ValueHolder in 'ValueHolder.pas',
-  PiplineTest in 'PiplineTest.pas',
-  Promise.Core in '..\Sources\Promise.Core.pas',
-  Promise.Types in '..\Sources\Promise.Types.pas';
+  PipelineTest in 'PipelineTest.pas',
+  Promise.Proto in '..\Sources\Promise.Proto.pas';
 
 var
   runner : ITestRunner;

@@ -3,7 +3,7 @@ unit ValueHolder;
 interface
 
 uses
-  System.SysUtils, System.SyncObjs, Promise.Types
+  System.SysUtils, System.SyncObjs, Promise.Proto
 ;
 
 type
